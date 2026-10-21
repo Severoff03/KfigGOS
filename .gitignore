@@ -1,0 +1,18 @@
+Build Releases.exe
+Builder/.work/
+Builder/build.lock
+Builder/last-build.log
+Builder/ReleaseLauncher.cs
+Builder/signing.p12
+Builder/signing-password.txt
+App/versions/
+*.apk
+*.aab
+*.idsig
+*.keystore
+*.jks
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
