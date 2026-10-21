@@ -35,6 +35,22 @@ public final class KeyboardStateTest {
         check(!owner.sameAs(gboard), "Independent profile states can contain different keyboards");
         check(!gboard.sameAs(new KeyboardState(gboard.enabled, gboard.selected, 22)),
                 "Remember selected language changes");
+        Set<String> systemKeyboards = Set.of("stock/.Ime");
+        check(reset.addsSystemKeyboard(gboard, systemKeyboards),
+                "A late stock-keyboard reset must not replace the saved selection");
+        check(!gboard.addsSystemKeyboard(gboard, systemKeyboards),
+                "Restoration notifications must not start another restoration");
+        check(!reset.addsSystemKeyboard(reset, systemKeyboards),
+                "An intentionally saved system keyboard remains allowed");
+        check(!two.addsSystemKeyboard(gboard, systemKeyboards),
+                "New third-party keyboards remain ordinary user changes");
+        check(!gboard.addsSystemKeyboard(reset, systemKeyboards),
+                "Disabling the system keyboard must update the snapshot");
+        check(!reset.addsSystemKeyboard(null, systemKeyboards),
+                "The first activation must capture the user's current selection");
+        KeyboardState subtypeChange = new KeyboardState("gboard/.Ime;22", "gboard/.Ime", 22);
+        check(!subtypeChange.addsSystemKeyboard(gboard, systemKeyboards),
+                "Language changes must still be remembered");
         System.out.println("Passed " + checks + " keyboard-state checks.");
     }
 }

@@ -49,6 +49,15 @@ final class KeyboardState {
                 && entries(enabled).equals(entries(other.enabled));
     }
 
+    boolean addsSystemKeyboard(KeyboardState previous, Set<String> systemKeyboards) {
+        if (previous == null) return false;
+        for (String entry : enabled.split(":")) {
+            String keyboard = id(entry);
+            if (systemKeyboards.contains(keyboard) && !previous.contains(keyboard)) return true;
+        }
+        return false;
+    }
+
     private static Set<String> entries(String value) {
         Set<String> normalized = new LinkedHashSet<>();
         for (String entry : value.split(":")) {

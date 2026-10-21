@@ -13,6 +13,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.pm.ApplicationInfo;
 import android.database.ContentObserver;
 import android.net.Uri;
 import android.os.Handler;
@@ -20,6 +21,7 @@ import android.os.Build;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.UserManager;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.inputmethod.InputMethodInfo;
@@ -45,16 +47,19 @@ public final class KeyboardService extends Service {
     private boolean restoring;
     private boolean listening;
     private int attempt;
+    private int restoreWrites;
+    private long retryAfter;
     private String status = "Starting";
     private final Runnable remember = this::remember;
     private final Runnable restore = this::restore;
+    private final Runnable unlocked = this::beginRestore;
 
     private final ContentObserver observer = new ContentObserver(handler) {
         @Override public void onChange(boolean selfChange, Uri uri) {
             if (restoring || !ready()) return;
             try {
                 KeyboardState current = read();
-                if (current.valid() && ready()) pending = current;
+                pending = current.valid() && ready() && !shouldRestore(current) ? current : null;
             } catch (RuntimeException exception) {
                 fail("Cannot read keyboard settings.", exception);
                 return;
@@ -71,12 +76,19 @@ public final class KeyboardService extends Service {
                     || Intent.ACTION_SCREEN_OFF.equals(action)) {
                 handler.removeCallbacks(remember);
                 handler.removeCallbacks(restore);
+                handler.removeCallbacks(unlocked);
                 if (!restoring && pending != null) persist(pending);
                 pending = null;
                 restoring = false;
             } else if (Intent.ACTION_USER_FOREGROUND.equals(action)
-                    || Intent.ACTION_USER_PRESENT.equals(action)) {
-                beginRestore();
+                    || Intent.ACTION_USER_PRESENT.equals(action)
+                    || Intent.ACTION_USER_UNLOCKED.equals(action)) {
+                handler.removeCallbacks(remember);
+                handler.removeCallbacks(unlocked);
+                pending = null;
+                handler.postDelayed(unlocked, 250);
+            } else if (Intent.ACTION_INPUT_METHOD_CHANGED.equals(action)) {
+                observer.onChange(false, null);
             }
         }
     };
@@ -109,6 +121,8 @@ public final class KeyboardService extends Service {
         filter.addAction(Intent.ACTION_USER_BACKGROUND);
         filter.addAction(Intent.ACTION_USER_FOREGROUND);
         filter.addAction(Intent.ACTION_USER_PRESENT);
+        filter.addAction(Intent.ACTION_USER_UNLOCKED);
+        filter.addAction(Intent.ACTION_INPUT_METHOD_CHANGED);
         filter.addAction(Intent.ACTION_SCREEN_OFF);
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(events, filter, Context.RECEIVER_NOT_EXPORTED);
@@ -155,11 +169,30 @@ public final class KeyboardService extends Service {
         if (restoring || !ready()) return;
         try {
             KeyboardState current = read();
+            if (!current.valid()) return;
+            if (shouldRestore(current)) {
+                pending = null;
+                if (SystemClock.elapsedRealtime() >= retryAfter) beginRestore();
+                return;
+            }
             if (ready()) persist(current);
             pending = null;
         } catch (RuntimeException exception) {
             fail("Cannot read keyboard settings.", exception);
         }
+    }
+
+    private boolean shouldRestore(KeyboardState current) {
+        if (saved == null) return false;
+        Set<String> installed = new HashSet<>();
+        Set<String> systemKeyboards = new HashSet<>();
+        for (InputMethodInfo keyboard : keyboards.getInputMethodList()) {
+            installed.add(keyboard.getId());
+            if ((keyboard.getServiceInfo().applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0) {
+                systemKeyboards.add(keyboard.getId());
+            }
+        }
+        return saved.available(installed) != null && current.addsSystemKeyboard(saved, systemKeyboards);
     }
 
     private void persist(KeyboardState current) {
@@ -176,6 +209,7 @@ public final class KeyboardService extends Service {
     private void beginRestore() {
         handler.removeCallbacks(remember);
         handler.removeCallbacks(restore);
+        handler.removeCallbacks(unlocked);
         pending = null;
         restoring = false;
         if (!ready()) return;
@@ -203,19 +237,26 @@ public final class KeyboardService extends Service {
                 return;
             }
             KeyboardState current = read();
+            if (attempt == 4) {
+                restoring = false;
+                if (target.sameAs(current)) {
+                    showStatus("Protecting this profile's keyboard list");
+                } else {
+                    retryAfter = SystemClock.elapsedRealtime() + 30_000;
+                    showStatus("Android did not accept the saved keyboard list");
+                    Log.w("KfigGOS", "Restoration rejected; automatic retries paused for 30 seconds");
+                }
+                return;
+            }
             if (!target.sameAs(current)) {
                 put(Settings.Secure.ENABLED_INPUT_METHODS, target.unionWith(current));
                 put(Settings.Secure.DEFAULT_INPUT_METHOD, target.selected);
                 put(Settings.Secure.SELECTED_INPUT_METHOD_SUBTYPE, Integer.toString(target.subtype));
                 put(Settings.Secure.ENABLED_INPUT_METHODS, target.enabled);
+                restoreWrites++;
             }
-            if (++attempt < 4) {
-                handler.postDelayed(restore, 600);
-            } else {
-                restoring = false;
-                showStatus(target.sameAs(read()) ? "Protecting this profile's keyboard list"
-                        : "Android did not accept the saved keyboard list");
-            }
+            attempt++;
+            handler.postDelayed(restore, 600);
         } catch (RuntimeException exception) {
             fail("Cannot restore keyboard settings. Check the ADB permission.", exception);
         }
@@ -265,6 +306,9 @@ public final class KeyboardService extends Service {
         writer.println("KfigGOS: " + status);
         writer.println("Permission: " + hasPermission() + ", profile ready: " + ready());
         writer.println("Saved keyboard list: " + (saved != null) + ", restoring: " + restoring);
+        writer.println("Saved enabled keyboards: " + (saved == null ? "none" : saved.enabled));
+        writer.println("Restore writes: " + restoreWrites + ", retry delay: "
+                + Math.max(0, retryAfter - SystemClock.elapsedRealtime()) + " ms");
     }
 
     @Override public IBinder onBind(Intent intent) { return null; }
