@@ -49,6 +49,23 @@ final class KeyboardState {
                 && entries(enabled).equals(entries(other.enabled));
     }
 
+    KeyboardState preservingInput(KeyboardState current) {
+        List<String> entries = new ArrayList<>();
+        for (String entry : enabled.split(":")) {
+            for (String active : current.enabled.split(":")) {
+                if (id(entry).equals(id(active))) {
+                    entry = active;
+                    break;
+                }
+            }
+            entries.add(entry);
+        }
+        boolean keepSelection = contains(current.selected);
+        return new KeyboardState(String.join(":", entries),
+                keepSelection ? current.selected : selected,
+                keepSelection ? current.subtype : subtype);
+    }
+
     boolean addsSystemKeyboard(KeyboardState previous, Set<String> systemKeyboards) {
         if (previous == null) return false;
         for (String entry : enabled.split(":")) {

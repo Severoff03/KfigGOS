@@ -86,7 +86,7 @@ public final class KeyboardService extends Service {
                 handler.removeCallbacks(remember);
                 handler.removeCallbacks(unlocked);
                 pending = null;
-                handler.postDelayed(unlocked, 250);
+                handler.postDelayed(unlocked, 200);
             } else if (Intent.ACTION_INPUT_METHOD_CHANGED.equals(action)) {
                 observer.onChange(false, null);
             }
@@ -237,10 +237,12 @@ public final class KeyboardService extends Service {
                 return;
             }
             KeyboardState current = read();
-            if (attempt == 4) {
+            target = target.preservingInput(current);
+            if (attempt == 3) {
                 restoring = false;
                 if (target.sameAs(current)) {
                     showStatus("Protecting this profile's keyboard list");
+                    handler.post(remember);
                 } else {
                     retryAfter = SystemClock.elapsedRealtime() + 30_000;
                     showStatus("Android did not accept the saved keyboard list");
@@ -250,13 +252,15 @@ public final class KeyboardService extends Service {
             }
             if (!target.sameAs(current)) {
                 put(Settings.Secure.ENABLED_INPUT_METHODS, target.unionWith(current));
-                put(Settings.Secure.DEFAULT_INPUT_METHOD, target.selected);
-                put(Settings.Secure.SELECTED_INPUT_METHOD_SUBTYPE, Integer.toString(target.subtype));
+                if (!target.selected.equals(current.selected)) {
+                    put(Settings.Secure.DEFAULT_INPUT_METHOD, target.selected);
+                    put(Settings.Secure.SELECTED_INPUT_METHOD_SUBTYPE, Integer.toString(target.subtype));
+                }
                 put(Settings.Secure.ENABLED_INPUT_METHODS, target.enabled);
                 restoreWrites++;
             }
             attempt++;
-            handler.postDelayed(restore, 600);
+            handler.postDelayed(restore, 200);
         } catch (RuntimeException exception) {
             fail("Cannot restore keyboard settings. Check the ADB permission.", exception);
         }

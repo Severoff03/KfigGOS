@@ -51,6 +51,28 @@ public final class KeyboardStateTest {
         KeyboardState subtypeChange = new KeyboardState("gboard/.Ime;22", "gboard/.Ime", 22);
         check(!subtypeChange.addsSystemKeyboard(gboard, systemKeyboards),
                 "Language changes must still be remembered");
+        check(gboard.preservingInput(subtypeChange).sameAs(subtypeChange),
+                "Restoration must preserve the current language and enabled languages");
+        KeyboardState switchedLanguage = new KeyboardState(gboard.enabled, gboard.selected, 22);
+        check(gboard.preservingInput(switchedLanguage).sameAs(switchedLanguage),
+                "Changing the language during startup must not trigger a reset");
+        KeyboardState lateReset = new KeyboardState("stock/.Ime:" + switchedLanguage.enabled,
+                switchedLanguage.selected, switchedLanguage.subtype);
+        check(gboard.preservingInput(lateReset).sameAs(switchedLanguage),
+                "Removing a re-enabled stock keyboard must preserve the user's language");
+        check(gboard.preservingInput(reset).sameAs(gboard),
+                "Switch away from an excluded keyboard using the saved selection");
+        KeyboardState otherSelected = new KeyboardState(two.enabled, "other/.Ime", 33);
+        check(two.preservingInput(otherSelected).sameAs(otherSelected),
+                "Do not undo a switch between allowed keyboards");
+        check(filtered.preservingInput(reset).sameAs(filtered),
+                "Preserve the available fallback when the selected saved keyboard is missing");
+        KeyboardState repeated = gboard;
+        for (int i = 0; i < 3; i++) {
+            KeyboardState changed = new KeyboardState(gboard.enabled, gboard.selected, i % 2 == 0 ? 22 : 11);
+            repeated = repeated.preservingInput(changed);
+            check(repeated.sameAs(changed), "Every restoration attempt must respect a new language choice");
+        }
         System.out.println("Passed " + checks + " keyboard-state checks.");
     }
 }
