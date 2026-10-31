@@ -1,6 +1,6 @@
 # KfigGOS
 
-A small patch by **Moffman** for the stock keyboard re-enabling itself when switching GrapheneOS profiles. It saves each profile's keyboard selection and restores it after switching back and unlocking.
+A small patch by **Mothman** for the stock keyboard re-enabling itself when switching GrapheneOS profiles. It saves each profile's keyboard selection and restores it after switching back and unlocking.
 
 ## Installation
 
